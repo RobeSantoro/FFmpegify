@@ -15,9 +15,9 @@ class FFMPEGIFY:
         self.STREAMINFO = None
         self.AUDIOINFO = None
 
-        '''
+        """
         Extract config to constants
-        '''
+        """
         self.START_FRAME = int(config["startFrame"])
         self.MAX_FRAMES = int(config["maxFrames"])
         self.MAX_WIDTH = int(config["maxWidth"])
@@ -42,16 +42,16 @@ class FFMPEGIFY:
             self.isVidOut = False
 
     def set_ffmpeg(self, ffmpeg_path):
-        '''
+        """
         Set a custom ffmpeg location
-        '''
+        """
         if ffmpeg_path:
             self.CUSTOM_FFMPEG = ffmpeg_path
 
     def get_metadata(self, inputf):
-        '''
+        """
         Use ffprobe to load metadata
-        '''
+        """
         # ffprobeInfo = ffmpeg.probe(str(inputf))
         ffprobeInfo = ffmpeg.probe(str(inputf), v = "quiet")
         self.STREAMINFO = ffprobeInfo["streams"][0]
@@ -59,9 +59,9 @@ class FFMPEGIFY:
             self.AUDIOINFO = ffprobeInfo["streams"][1]
 
     def get_input_file(self, path):
-        '''
+        """
         Get the input selected frame. If the input path is a directory it searches contained files for a valid frame.
-        '''
+        """
         infile = Path(path)
         if os.path.isdir(path):
             files = os.listdir(path)
@@ -73,9 +73,9 @@ class FFMPEGIFY:
         return infile
 
     def get_output_filename(self, infile):
-        '''
+        """
         Creates the output filepath. Avoids overwrites
-        '''
+        """
         saveDir = infile  # naming the video file based on parent dir. Could change this later.
         parts = infile.parent.parts
         if self.NAME_LEVELS > 0:
@@ -105,9 +105,9 @@ class FFMPEGIFY:
         return outputf
 
     def input_stream(self, infile):
-        '''
+        """
         Generate ffmpeg arg stream. Arguments for the input stream would be placed prior to -i on commandline?
-        '''
+        """
         IN_ARGS = (dict())
 
         # Parse input filename for framenumber. simple regex match - find digits at the end of the filename.
@@ -152,9 +152,9 @@ class FFMPEGIFY:
         return None
 
     def add_audio(self, infile, STREAM):
-        '''
+        """
         Search for adjacent audio files and add to the stream
-        '''
+        """
         try:
             tracks = []
             tracks.extend(sorted(infile.parent.glob("*.mp3")))
@@ -168,9 +168,9 @@ class FFMPEGIFY:
             print("Error adding audio: " + str(e))
 
     def add_scaling(self, STREAM):
-        '''
+        """
         Scale the output. FFprobe is used to get input image/video dimensions
-        '''
+        """
         scalekw = {}
         scalekw["out_color_matrix"] = "bt709"
         iw = self.STREAMINFO["width"] # "coded_width" can be larger than 'width' and causes errors in vid-vid conversion?
@@ -203,9 +203,9 @@ class FFMPEGIFY:
         return STREAM.filter("scale", scale[0], scale[1], **scalekw)
 
     def build_output(self, infile, STREAM):
-        '''
+        """
         Construct output stream arguments and output filepath (image sequence input)
-        '''
+        """
         outputf = self.get_output_filename(infile)
         OUT_ARGS = dict()
 
@@ -269,11 +269,11 @@ class FFMPEGIFY:
         return False
 
     def build_output_video_to_video(self, infile):
-        '''
+        """
         Construct output stream arguments and output filepath (video as input)
         TODO vid-vid convert with audio?
         https://github.com/kkroening/ffmpeg-python/issues/204
-        '''
+        """
         stem = infile.stem
         saveDir = infile
 
@@ -309,9 +309,9 @@ class FFMPEGIFY:
         return STREAM
 
     def convert(self, path):
-        '''
+        """
         Compile final command and run ffmpeg
-        '''
+        """
 
         infile = self.get_input_file(path)
         self.get_metadata(infile)
@@ -348,9 +348,9 @@ class FFMPEGIFY:
 from configparser import ConfigParser
 
 def read_config(config_file):
-    '''
+    """
     Read config.ini. Used to define custom ffmpeg / settings.json locations
-    '''
+    """
     config = ConfigParser()
     config.read(str(config_file))
 
@@ -377,9 +377,9 @@ def read_config(config_file):
     return custom_ffmpeg_path, custom_settings_file
 
 def read_settings(settings_file):
-    '''
+    """
     Read json settings file which defines video conversion parameters
-    '''
+    """
     try:
         with open(settings_file, "r") as f:
             config = json.load(f)

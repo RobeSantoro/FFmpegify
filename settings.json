@@ -12,6 +12,6 @@
     "codec": "H.264",
     "format": "mp4",
     "namelevels": "3",
-    "useaudio": "False",
+    "useaudio": "True",
     "audiooffset": "0"
 }
