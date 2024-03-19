@@ -1,4 +1,11 @@
-import re, sys, glob, os, time, json, subprocess
+from configparser import ConfigParser
+import re
+import sys
+import glob
+import os
+import time
+import json
+import subprocess
 from pathlib import Path
 import ffmpeg
 
@@ -7,6 +14,7 @@ linearImg = [".exr", ".tga"]
 imgTypes = standardImg + linearImg
 vidTypes = [".mov", ".mp4", ".webm", ".mkv", ".avi"]
 vidOutput = ["mov", "mp4", "mp4-via-jpg", "webm"]
+
 
 class FFMPEGIFY:
     def __init__(self, config):
@@ -33,7 +41,8 @@ class FFMPEGIFY:
 
         self.GAMMA = config["gamma"]
         self.PREMULT = config["premult"]
-        self.NAME_LEVELS = int(config["namelevels"])  # Create output file in higher-up directories
+        # Create output file in higher-up directories
+        self.NAME_LEVELS = int(config["namelevels"])
         self.USE_AUDIO = config["useaudio"]
         self.AUDIO_OFFSET = int(config["audiooffset"])
 
@@ -53,7 +62,7 @@ class FFMPEGIFY:
         Use ffprobe to load metadata
         """
         # ffprobeInfo = ffmpeg.probe(str(inputf))
-        ffprobeInfo = ffmpeg.probe(str(inputf), v = "quiet")
+        ffprobeInfo = ffmpeg.probe(str(inputf), v="quiet")
         self.STREAMINFO = ffprobeInfo["streams"][0]
         if ffprobeInfo["format"]["nb_streams"] > 1:
             self.AUDIOINFO = ffprobeInfo["streams"][1]
@@ -85,7 +94,8 @@ class FFMPEGIFY:
         else:
             outname = str(infile.parent)
         outname = re.sub(r"\W+", "_", outname)
-        outputf = str(saveDir.with_name("_" + outname + "_video." + self.VIDFORMAT))
+        outputf = str(saveDir.with_name(
+            "_" + outname + "_video." + self.VIDFORMAT))
         if not self.isVidOut:
             outputf = str(
                 saveDir.with_name(
@@ -98,7 +108,8 @@ class FFMPEGIFY:
         while Path(outputf).exists():
             outputf = str(
                 saveDir.with_name(
-                    "_" + outname + "_video_" + str(counter) + "." + self.VIDFORMAT
+                    "_" + outname + "_video_" +
+                    str(counter) + "." + self.VIDFORMAT
                 )
             )
             counter = counter + 1
@@ -123,12 +134,12 @@ class FFMPEGIFY:
             sp2.reverse()
 
             # glob for other frames in the folder and find the first frame to use as start number
-            preframepart = stem[0 : sp2[0]]
-            postframepart = stem[sp2[1] :]
+            preframepart = stem[0: sp2[0]]
+            postframepart = stem[sp2[1]:]
             frames = sorted(
                 infile.parent.glob(preframepart + "*" + postframepart + suffix)
             )
-            start_num = int(frames[0].name[sp2[0] : sp2[1]])
+            start_num = int(frames[0].name[sp2[0]: sp2[1]])
             if self.START_FRAME > 0:
                 start_num = self.START_FRAME
 
@@ -140,7 +151,7 @@ class FFMPEGIFY:
                 padstring = "%" + "d"
 
             # get absolute path to the input file
-            inputf = stem[0 : sp2[0]] + padstring + postframepart + suffix
+            inputf = stem[0: sp2[0]] + padstring + postframepart + suffix
             inputf_abs = str(infile.with_name(inputf))
 
             if suffix in linearImg:
@@ -173,14 +184,17 @@ class FFMPEGIFY:
         """
         scalekw = {}
         scalekw["out_color_matrix"] = "bt709"
-        iw = self.STREAMINFO["width"] # "coded_width" can be larger than 'width' and causes errors in vid-vid conversion?
-        ih = self.STREAMINFO["height"] # "coded_height" can be larger than 'height' and causes errors in vid-vid conversion?
+        # "coded_width" can be larger than 'width' and causes errors in vid-vid conversion?
+        iw = self.STREAMINFO["width"]
+        # "coded_height" can be larger than 'height' and causes errors in vid-vid conversion?
+        ih = self.STREAMINFO["height"]
         # Round to even pixel dimensions
         rounded_w = iw - (iw % 2)
         rounded_h = ih - (ih % 2)
         downscale_w = min(self.MAX_WIDTH, rounded_w)
         downscale_h = min(self.MAX_HEIGHT, rounded_h)
-        print("iw: {} ih: {} downscale_w: {} downscale_h: {}".format(iw, ih, downscale_w, downscale_h))
+        print("iw: {} ih: {} downscale_w: {} downscale_h: {}".format(
+            iw, ih, downscale_w, downscale_h))
 
         # If no max dim just crop odd pixels
         if self.MAX_HEIGHT <= 0 and self.MAX_WIDTH <= 0:
@@ -222,9 +236,10 @@ class FFMPEGIFY:
                 OUT_ARGS["max_muxing_queue_size"] = 4096
             elif self.CODEC == "ProResHQ":
                 OUT_ARGS["vcodec"] = "prores"
-                OUT_ARGS["profile"] = "3" # 422 HQ
+                OUT_ARGS["profile"] = "3"  # 422 HQ
                 OUT_ARGS["pix_fmt"] = "yuv422p10le"
-                OUT_ARGS["qscale"] = "13" # prores quality - could add configuration option for this? 9-13 is recommended
+                # prores quality - could add configuration option for this? 9-13 is recommended
+                OUT_ARGS["qscale"] = "13"
             else:
                 pass
 
@@ -308,7 +323,83 @@ class FFMPEGIFY:
         STREAM = ffmpeg.output(STREAM, audio_in, outputf, **OUT_ARGS)
         return STREAM
 
+    def process_video_file(self, vid_path):
+        """
+        Process an individual video file
+        """
+        self.get_metadata(vid_path)
+        STREAM = self.build_output_video_to_video(vid_path)
+        if not self.CUSTOM_FFMPEG:
+            cmd = STREAM.compile()
+        else:
+            cmd = STREAM.compile(cmd=self.CUSTOM_FFMPEG)
+        cmd = [re.sub(r'^(\d:a)$', '\\1?', arg) for arg in cmd]
+        print(" ".join(cmd))
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
+        stdout, stderr = p.communicate()
+        print(stderr.decode("utf-8"))
+
     def convert(self, path):
+        """
+        Compile final command and run ffmpeg
+        """
+
+        # This might return a single input file or just the directory path
+        infile = self.get_input_file(path)
+
+        # Check if the path is a directory and process accordingly
+        if os.path.isdir(path):
+            img_files = []
+            vid_files = []
+
+            # Search for image and video files in the directory
+            for f in os.listdir(path):
+                fpath = Path(f)
+                if fpath.suffix in imgTypes:
+                    img_files.append(fpath)
+                elif fpath.suffix in vidTypes:
+                    vid_files.append(fpath)
+
+            # If no image files but multiple video files exist, process each video file
+            if len(img_files) == 0 and len(vid_files) > 1:
+                print("Processing multiple video files")
+                for vid_file in vid_files:
+                    vid_path = Path(path).joinpath(vid_file)
+                    print("Processing video file: " + str(vid_path))
+                    self.process_video_file(vid_path)
+                    print("Deleting original file: " + str(vid_path))
+                    os.remove(vid_path)
+                return
+
+        # Existing code for handling single image/video file processing
+        suffix = str(infile.suffix)
+        if suffix in imgTypes:
+            STREAM = self.input_stream(infile)
+            if not STREAM:
+                print("Cannot find valid input file.")
+                return
+            self.add_audio(infile, STREAM)
+            STREAM = self.build_output(infile, STREAM)
+        elif suffix in vidTypes:
+            STREAM = self.build_output_video_to_video(infile)
+        else:
+            print("Invalid file extension: " + str(suffix))
+            return
+
+        if not self.CUSTOM_FFMPEG:
+            cmd = STREAM.compile()
+        else:
+            cmd = STREAM.compile(cmd=self.CUSTOM_FFMPEG)
+        cmd = [re.sub(r'^(\d:a)$', '\\1?', arg)
+               for arg in cmd]  # add optional (?) flag to audio streams
+        print(" ".join(cmd))
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
+        stdout, stderr = p.communicate()
+        print(stderr.decode("utf-8"))
+
+    def convert_old(self, path):
         """
         Compile final command and run ffmpeg
         """
@@ -335,9 +426,11 @@ class FFMPEGIFY:
         else:
             cmd = STREAM.compile(cmd=self.CUSTOM_FFMPEG)
 
-        cmd = [re.sub(r'^(\d:a)$', '\\1?', arg) for arg in cmd] # add optional (?) flag to audio streams. Prevents error in vid->vid if no audio present
+        # add optional (?) flag to audio streams. Prevents error in vid->vid if no audio present
+        cmd = [re.sub(r'^(\d:a)$', '\\1?', arg) for arg in cmd]
         print(" ".join(cmd))
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
         print(stderr.decode("utf-8"))
 
@@ -345,7 +438,6 @@ class FFMPEGIFY:
 # Configuration readers and main entry point
 # =================================================================
 
-from configparser import ConfigParser
 
 def read_config(config_file):
     """
@@ -370,11 +462,13 @@ def read_config(config_file):
         if settings_file and Path(settings_file).exists():
             custom_settings_file = str(settings_file)
         else:
-            print("unable to find settings file in custom location - using default location")
+            print(
+                "unable to find settings file in custom location - using default location")
     except:
         print("custom settings.json path not used")
 
     return custom_ffmpeg_path, custom_settings_file
+
 
 def read_settings(settings_file):
     """
